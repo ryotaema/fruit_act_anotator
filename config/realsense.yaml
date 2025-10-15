@@ -1,0 +1,53 @@
+/**:
+  ros__parameters:
+    # Parameters that can be modified during runtime
+    depth_module.profile: "640,480,15"
+    depth_module.enable_auto_exposure: true
+    rgb_camera.profile: "640,480,15"
+    rgb_camera.enable_auto_exposure: true
+    enable_depth: true
+    enable_color: true
+    enable_infra1: false
+    enable_infra2: false
+    enable_fisheye1: false
+    enable_fisheye2: false
+    enable_gyro: false
+    enable_accel: false
+    enable_pose: false
+    enable_sync: true
+    enable_rgbd: true
+    tf_publish_rate: 0.0
+
+    # Parameters that cannot be changed in runtime:
+    serial_no: ""
+    usb_port_id: ""
+    device_type': ""
+    reconnect_timeout: 6.0
+    wait_for_device_timeout: -1.0
+    rosbag_filename: ""
+    initial_reset: false
+    unite_imu_method: 0
+    clip_distance: -1.0
+    publish_tf: true
+    diagnostics_period: 0.0
+
+    # Post-Processing Filters 
+    align_depth.enable: true
+    colorizer.enable: false
+    pointcloud.enable: true
+    pointcloud.stream_filter: 2
+    pointcloud.allow_no_texture_points: false
+    pointcloud.ordered_pc: false
+    pointcloud.stream_index_filter: 0
+    hdr_merge.enable: false
+    depth_module.exposure.1: 7500
+    depth_module.gain.1: 16
+    depth_module.exposure.2: 1
+    depth_module.gain.2: 16
+
+    # Other
+    camera_name: "head_camera"
+    json_file_path: ""
+    gyro_fps: 0
+    accel_fps: 0
+    pose_fps: 200

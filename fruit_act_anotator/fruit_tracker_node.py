@@ -18,6 +18,7 @@ from tf2_geometry_msgs import do_transform_point
 import image_geometry
 import os
 import cv2
+from std_msgs.msg import Int32
 
 class FruitTrackerNode(Node):
     def __init__(self):
@@ -38,6 +39,8 @@ class FruitTrackerNode(Node):
         self.tf_listener = TransformListener(self.tf_buffer, self)
         self.bridge = CvBridge()
 
+        self.waypoint_num = 10000 #初期値かぶり防止
+
         self.last_known_3d_pos_base = None
         self.last_detection_time = self.get_clock().now()
         self.camera_model = None
@@ -48,6 +51,9 @@ class FruitTrackerNode(Node):
         self.create_subscription(Image, '/camera/camera/aligned_depth_to_color/image_raw', self.depth_callback, 1)
         self.create_subscription(CameraInfo, '/camera/camera/color/camera_info', self.info_callback, 1)
         self.create_subscription(Image, '/camera/camera/color/image_raw', self.color_image_callback, 1)
+        self.create_subscription(Int32, 'waypoint_num', self.waypoint_callback, 1)
+
+
 
         self.pub_tracked_bbox = self.create_publisher(Detection2DArray, '/tracked_detections', 1)
         self.pub_fruit_point = self.create_publisher(PointStamped, "/detected_fruits", 1)
@@ -79,15 +85,21 @@ class FruitTrackerNode(Node):
                 if depth > 0:
                     return depth / 1000.0, ui, vi
         return 0, u, v
+    
+    def waypoint_callback(self, msg):
+        if self.waypoint_num != msg.data:
+            # ★★★ YOLOアノテーションは全ての検出物体を保存する ★★★
+            if len(self.latest_bbox.detections) > 0:
+                self.save_image_and_annotations(self.latest_color_image_msg, self.latest_bbox.detections)
+        self.waypoint_num = msg.data
+
 
     def detection_callback(self, msg):
+        self.latest_bbox = msg
+
         if self.latest_depth_image is None or self.camera_model is None or self.latest_color_image_msg is None: return
-        
+
         cv_depth = self.bridge.imgmsg_to_cv2(self.latest_depth_image, desired_encoding='passthrough')
-        
-        # ★★★ YOLOアノテーションは全ての検出物体を保存する ★★★
-        if len(msg.detections) > 0:
-            self.save_image_and_annotations(self.latest_color_image_msg, msg.detections)
         
         best_detection = max(msg.detections, key=lambda d: d.bbox.size_x * d.bbox.size_y, default=None)
         if not best_detection: return
@@ -118,10 +130,12 @@ class FruitTrackerNode(Node):
         except (LookupException, ExtrapolationException) as e:
             self.get_logger().warn(f"TF lookup failed: {e}")
 
+
     # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
     # ★★★ 新しいヘルパー関数：画像とアノテーションの保存処理 ★★★
     # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
     def save_image_and_annotations(self, image_msg, detections):
+        print("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
         # ファイル名のベース部分を作成
         stamp = image_msg.header.stamp
         filename_base = f"{stamp.sec}_{stamp.nanosec}"

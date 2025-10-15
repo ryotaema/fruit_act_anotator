@@ -1,7 +1,7 @@
 # =====================================================================================
 # このノードは、ROSトピック経由で受信したカラー画像に対してYOLOv8を実行し、
-# 検出した物体の2Dバウンディングボックス情報を配信する、純粋な「検出器」です。
-# ★★★ さらに、検出結果を画像に描画し、新しいROSトピックに配信します (rqt_image_viewerなどで確認可能)。 ★★★
+# 検出した物体の2Dバウンディングボックス情報を配信する、純粋な「検出器」。
+# ★★★ さらに、検出結果を画像に描画し、新しいROSトピックに配信します (rqt_image_viewerなどで確認して)。 ★★★
 # =====================================================================================
 import rclpy
 import torch
@@ -25,9 +25,9 @@ class DetectionNode(Node):
 
         # BridgeとPublisher/Subscriber
         self.bridge = CvBridge()
-        self.pub_detections = self.create_publisher(Detection2DArray, '/detections_2d', 10)
+        self.pub_detections = self.create_publisher(Detection2DArray, '/detections_2d', 1)
         # ★★★ 描画済み画像を配信するPublisherを追加 ★★★
-        self.pub_annotated_image = self.create_publisher(Image, '/detection_node/annotated_image', 10)
+        self.pub_annotated_image = self.create_publisher(Image, '/detection_node/annotated_image', 1)
 
         self.sub_image = self.create_subscription(
             Image,

@@ -107,9 +107,9 @@ class AnnotatorNode(Node):
         filename = f"annotated_{timestamp}_{milliseconds}.png"
         save_path = os.path.join(self.output_path, filename)
         
-        # 画像を保存
-        cv2.imwrite(save_path, annotated_image)
-        self.get_logger().info(f'Saved annotated image to {save_path}')
+        # # 画像を保存
+        # cv2.imwrite(save_path, annotated_image)
+        # self.get_logger().info(f'Saved annotated image to {save_path}')
 
         # 処理が終わったら、次のデータが来るまでNoneにしておくことで重複保存を防ぐ
         self.latest_image = None

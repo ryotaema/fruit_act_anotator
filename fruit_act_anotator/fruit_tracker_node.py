@@ -19,6 +19,8 @@ import image_geometry
 import os
 import cv2
 from std_msgs.msg import Int32
+import time
+
 
 class FruitTrackerNode(Node):
     def __init__(self):
@@ -90,7 +92,7 @@ class FruitTrackerNode(Node):
         if self.waypoint_num != msg.data:
             # ★★★ YOLOアノテーションは全ての検出物体を保存する ★★★
             if len(self.latest_bbox.detections) > 0:
-                self.save_image_and_annotations(self.latest_color_image_msg, self.latest_bbox.detections)
+                self.save_image_and_annotations(self.latest_color_image_msg, self.latest_bbox.detections, msg.data)
         self.waypoint_num = msg.data
 
 
@@ -134,12 +136,17 @@ class FruitTrackerNode(Node):
     # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
     # ★★★ 新しいヘルパー関数：画像とアノテーションの保存処理 ★★★
     # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
-    def save_image_and_annotations(self, image_msg, detections):
+    def save_image_and_annotations(self, image_msg, detections, waypoint_num):
         print("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+        self.get_logger().info(f"bbbbbbbbbbbbbbbbbbbbbbbbbb")
+
         # ファイル名のベース部分を作成
-        stamp = image_msg.header.stamp
-        filename_base = f"{stamp.sec}_{stamp.nanosec}"
+        timestamp = time.strftime("%m%d-%H%M%S")
+        # stamp = image_msg.header.stamp
+        # filename_base = f"{stamp.sec}_{stamp.nanosec}_waypoint{waypoint_num}"
+        filename_base = f"{timestamp}_waypoint{waypoint_num}"
         
+
         # --- 画像の保存 ---
         try:
             cv_image = self.bridge.imgmsg_to_cv2(image_msg, "bgr8")

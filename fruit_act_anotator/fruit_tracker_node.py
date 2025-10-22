@@ -12,6 +12,7 @@ from sensor_msgs.msg import Image, CameraInfo
 from vision_msgs.msg import Detection2DArray, Detection2D, BoundingBox2D
 from geometry_msgs.msg import Point, PointStamped
 from cv_bridge import CvBridge
+from scipy.spatial.transform import Rotation as R
 
 from tf2_ros import Buffer, TransformListener, LookupException, ExtrapolationException
 from tf2_geometry_msgs import do_transform_point
@@ -99,13 +100,19 @@ class FruitTrackerNode(Node):
     def detection_callback(self, msg):
         self.latest_bbox = msg
 
-        if self.latest_depth_image is None or self.camera_model is None or self.latest_color_image_msg is None: return
+        if self.latest_depth_image is None or self.camera_model is None or self.latest_color_image_msg is None: 
+            return
 
         cv_depth = self.bridge.imgmsg_to_cv2(self.latest_depth_image, desired_encoding='passthrough')
         
         best_detection = max(msg.detections, key=lambda d: d.bbox.size_x * d.bbox.size_y, default=None)
-        if not best_detection: return
+        if not best_detection: 
+            return
         
+        # ★★★ 最後に検出したバウンディングボックスを保存 ★★★
+        self.last_detected_bbox = best_detection.bbox
+
+
         u_center = int(best_detection.bbox.center.position.x)
         v_center = int(best_detection.bbox.center.position.y)
         
@@ -137,8 +144,8 @@ class FruitTrackerNode(Node):
     # ★★★ 新しいヘルパー関数：画像とアノテーションの保存処理 ★★★
     # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
     def save_image_and_annotations(self, image_msg, detections, waypoint_num):
-        print("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
-        self.get_logger().info(f"bbbbbbbbbbbbbbbbbbbbbbbbbb")
+        print("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")#デバック用
+        self.get_logger().info(f"bbbbbbbbbbbbbbbbbbbbbbbbbb")#デバック用
 
         # ファイル名のベース部分を作成
         timestamp = time.strftime("%m%d-%H%M%S")
@@ -179,16 +186,114 @@ class FruitTrackerNode(Node):
                 self.get_logger().error(f"Failed to write annotation file: {e}")
 
     def predict_and_publish(self):
-        # 予測時にはファイル保存を行わないように変更
-        if self.last_known_3d_pos_base is None or self.camera_model is None: return
+    #検出できなかった時に、TFを使って物体の位置を予測し、
+    #バウンディングボックスを推定して配信する
+    
+        if self.last_known_3d_pos_base is None or self.camera_model is None:
+            return
+    
+        # 予測が必要か判定(0.5秒以上検出がない場合)
+        is_prediction = (self.get_clock().now() - self.last_detection_time) > rclpy.duration.Duration(seconds=0.5)
+        if not is_prediction:
+            return
+    
+        # 最後に検出した物体の情報が必要
+        if not hasattr(self, 'last_detected_bbox') or self.last_detected_bbox is None:
+            return
+    
+        try:
+            # base_link -> camera_color_optical_frameへの変換を取得
+            transform = self.tf_buffer.lookup_transform(
+                "camera_color_optical_frame",
+                "base_link",
+                rclpy.time.Time()
+            )
         
-        # is_prediction = (self.get_clock().now() - self.last_detection_time) > rclpy.duration.Duration(seconds=0.5)
-        # if not is_prediction: return # 予測タイミングでないなら何もしない
-
-        # (予測トラッキングのロジックは残すが、ファイル保存は行わない)
-        # ... (省略) ...
-        pass
-
+            # 3D位置をカメラ座標系に変換
+            pt_camera = do_transform_point(self.last_known_3d_pos_base, transform)
+        
+            # カメラ座標系での3D位置
+            x_cam = pt_camera.point.x
+            y_cam = pt_camera.point.y
+            z_cam = pt_camera.point.z
+            
+            # 深度がゼロまたは負の場合はスキップ
+            if z_cam <= 0:
+                return
+            
+            # 3D位置を2D画像座標に投影
+            u_pred, v_pred = self.camera_model.project3dToPixel((x_cam, y_cam, z_cam))
+            u_pred = int(u_pred)
+            v_pred = int(v_pred)
+            
+            # 画像範囲外ならスキップ
+            if u_pred < 0 or u_pred >= self.camera_model.width or v_pred < 0 or v_pred >= self.camera_model.height:
+                return
+            
+            # カメラの傾き角度θを計算
+            # Y軸方向のベクトル(カメラの光軸方向)
+            camera_y_axis = np.array([
+                transform.transform.rotation.x,
+                transform.transform.rotation.y,
+                transform.transform.rotation.z,
+                transform.transform.rotation.w
+            ])
+            
+            # クォータニオンから回転行列を計算してY軸(前方)ベクトルを取得
+            from scipy.spatial.transform import Rotation as R
+            rot = R.from_quat(camera_y_axis)
+            camera_forward = rot.apply([0, 0, 1])  # カメラ座標系のZ軸が前方
+            
+            # 水平面に対する角度θを計算
+            # カメラが水平のとき、forward[2]=0
+            # カメラが下向きのとき、forward[2]<0
+            theta = np.arctan2(-camera_forward[2], np.sqrt(camera_forward[0]**2 + camera_forward[1]**2))
+            
+            # 最後に検出したバウンディングボックスのサイズ
+            w_original = self.last_detected_bbox.size_x  # 横幅
+            h_original = self.last_detected_bbox.size_y  # 縦幅
+            
+            # 予測式: h_p = |h*cosθ| + |w*sinθ|
+            h_predicted = abs(h_original * np.cos(theta)) + abs(w_original * np.sin(theta))
+            
+            # 横幅は変わらない(円柱の仮定)
+            w_predicted = w_original
+            
+            # 予測したバウンディングボックスを作成
+            predicted_detection = Detection2D()
+            predicted_detection.header.frame_id = "camera_color_optical_frame"
+            predicted_detection.header.stamp = self.get_clock().now().to_msg()
+            
+            bbox = BoundingBox2D()
+            bbox.center.position.x = float(u_pred)
+            bbox.center.position.y = float(v_pred)
+            bbox.size_x = float(w_predicted)
+            bbox.size_y = float(h_predicted)
+            predicted_detection.bbox = bbox
+            
+            # Detection2DArrayとして配信
+            detection_array = Detection2DArray()
+            detection_array.header = predicted_detection.header
+            detection_array.detections.append(predicted_detection)
+            
+            self.pub_tracked_bbox.publish(detection_array)
+            
+            # 予測したバウンディングボックスと画像を保存
+            if self.latest_color_image_msg is not None:
+                self.save_image_and_annotations(
+                    self.latest_color_image_msg,
+                    detection_array.detections,
+                    self.waypoint_num
+                )
+            
+            self.get_logger().info(
+                f"Predicted bbox at ({u_pred}, {v_pred}), "
+                f"theta={np.degrees(theta):.1f}deg, "
+                f"h={h_predicted:.1f}px"
+            )
+            
+        except (LookupException, ExtrapolationException) as e:
+            self.get_logger().warn(f"TF prediction failed: {e}")
 
 def main(args=None):
     rclpy.init(args=args)

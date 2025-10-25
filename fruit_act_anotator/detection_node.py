@@ -44,12 +44,9 @@ class DetectionNode(Node):
         detection_array = Detection2DArray()
         detection_array.header = msg.header
 
-        # ★★★ 描画用の画像コピーを作成 ★★★
+        # ★ 描画用の画像コピーを「先に」作成
         annotated_image = cv_image.copy() 
         
-        # クラス名リスト (YOLOモデルに合わせて調整してください)
-        # もしYOLOモデルが 'fruit' などのクラス名を持っている場合、以下のように定義します。
-        # self.model.names から取得するのが最も正確です。
         class_names = self.model.names if hasattr(self.model, 'names') else ['fruit'] # 仮のクラス名
 
         for result in results:
@@ -63,9 +60,7 @@ class DetectionNode(Node):
                 detection = Detection2D()
                 detection.header = detection_array.header
                 
-                # image_callback関数内
                 bbox = BoundingBox2D()
-                # ★★★ すべての計算結果を float() で囲む ★★★
                 bbox.center.position.x = float((xyxy[0] + xyxy[2]) / 2.0)
                 bbox.center.position.y = float((xyxy[1] + xyxy[3]) / 2.0)
                 bbox.size_x = float(xyxy[2] - xyxy[0])
@@ -73,31 +68,31 @@ class DetectionNode(Node):
                 detection.bbox = bbox
                 detection_array.detections.append(detection)
 
-                # ★★★ 画像にバウンディングボックスとラベルを描画 ★★★
+                # ★ 画像にバウンディングボックスとラベルを描画 ★
                 x1, y1, x2, y2 = map(int, xyxy)
                 
-                # バウンディングボックス
                 color = (0, 255, 0) # 緑色
                 cv2.rectangle(annotated_image, (x1, y1), (x2, y2), color, 2)
                 
-                # ラベル (クラス名と信頼度)
                 label = f"{class_names[class_id]}: {confidence:.2f}"
                 text_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)[0]
                 cv2.rectangle(annotated_image, (x1, y1 - text_size[1] - 10), (x1 + text_size[0], y1), color, -1)
                 cv2.putText(annotated_image, label, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2)
 
-        # 検出結果がある場合のみpublish
+        # ★★★ 変更点 ★★★
+        
+        # BBoxデータ（/detections_2d）は検出した時だけpublish
         if len(detection_array.detections) > 0:
             self.pub_detections.publish(detection_array)
 
-        # ★★★ 描画済み画像をpublish ★★★
+        # 描画済み画像（/detection_node/annotated_image）は「常に」publish
+        # （if文の外側に出す）
         try:
             annotated_image_msg = self.bridge.cv2_to_imgmsg(annotated_image, "bgr8")
             annotated_image_msg.header = msg.header # 元の画像のヘッダーを使用
             self.pub_annotated_image.publish(annotated_image_msg)
         except Exception as e:
             self.get_logger().error(f"Failed to convert or publish annotated image: {e}")
-
 
 def main(args=None):
     rclpy.init(args=args)
